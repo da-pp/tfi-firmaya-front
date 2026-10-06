@@ -66,11 +66,6 @@ export function emailValido(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-// Exactamente 64 caracteres hexadecimales
-export function hashValido(hash) {
-  return /^[0-9a-fA-F]{64}$/.test(hash.trim());
-}
-
 // ---------- Hash simulado ----------
 
 // Genera un "hash" de 64 caracteres hexadecimales a partir de un texto.
@@ -91,22 +86,6 @@ export function hashSimulado(texto) {
 // Muestra el inicio de un hash: "a3f91c24d8e7b6a0…"
 export function hashCorto(hash, largo = 16) {
   return hash.slice(0, largo) + "…";
-}
-
-// ---------- HTML / texto ----------
-
-// Convierte el HTML del editor en texto plano con saltos de línea
-export function htmlATexto(html) {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|h1|h2|h3|li|blockquote|div)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\n{2,}/g, "\n")
-    .trim();
 }
 
 // ---------- Portapapeles y descargas ----------

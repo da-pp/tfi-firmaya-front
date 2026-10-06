@@ -480,34 +480,6 @@ h3 { font-size: 15px; font-weight: 700; }
 .modal h2 { margin-bottom: 8px; }
 .modal p { color: #334155; margin-bottom: 18px; }
 
-/* ---------- Toggle (CU-20) ---------- */
-
-.toggle {
-  width: 40px;
-  height: 22px;
-  border-radius: 999px;
-  border: none;
-  background: #e2e8f0;
-  position: relative;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.toggle::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  transition: left 0.15s;
-}
-
-.toggle-activo { background: var(--primario); }
-.toggle-activo::after { left: 21px; }
-
 /* ---------- Barras de progreso ---------- */
 
 .barra {
@@ -521,25 +493,6 @@ h3 { font-size: 15px; font-weight: 700; }
   height: 100%;
   background: var(--primario);
   border-radius: 999px;
-}
-
-/* ---------- Comparación de versiones (CU-12) ---------- */
-
-.diff-eliminado {
-  background: #fee2e2;
-  color: #b91c1c;
-  text-decoration: line-through;
-  border-radius: 4px;
-}
-
-.diff-agregado {
-  background: #dcfce7;
-  color: #15803d;
-  border-radius: 4px;
-}
-
-.diff-actual {
-  outline: 2px solid var(--primario);
 }
 
 /* ---------- Utilidades ---------- */

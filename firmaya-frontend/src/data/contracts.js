@@ -53,7 +53,6 @@ export const contratos = [
     fechaExpiracion: "31/05/2028",
     descripcionPropiedad: "Departamento de 2 ambientes en Av. Corrientes 1240.",
     solicitudFirmaEnviada: false,
-    falloPdf: false,
     versiones: [
       version(1, "Sistema", "12/05/2026 09:00", "Creación inicial", intro + "<p>El contrato tendrá una duración de 12 meses.</p>"),
       version(2, "Daniel Pérez", "13/05/2026 12:20", "Primera revisión", intro + inmueble + "<p>El contrato tendrá una duración de 12 meses.</p>"),
@@ -80,7 +79,6 @@ export const contratos = [
     fechaExpiracion: "",
     descripcionPropiedad: "PH en Palermo.",
     solicitudFirmaEnviada: true,
-    falloPdf: false,
     versiones: [
       version(1, "Sistema", "10/05/2026 09:30", "Creación inicial", "<h3>BOLETO DE COMPRAVENTA</h3><p>Entre Ana Martínez, en adelante \"LA PARTE VENDEDORA\", y Juan Pérez, en adelante \"LA PARTE COMPRADORA\", se celebra el presente boleto de compraventa.</p><p>El inmueble objeto de la operación se encuentra ubicado en Palermo, Ciudad Autónoma de Buenos Aires.</p>"),
       version(2, "María Gómez", "14/05/2026 18:05", "Precio y forma de pago", "<h3>BOLETO DE COMPRAVENTA</h3><p>Entre Ana Martínez, en adelante \"LA PARTE VENDEDORA\", y Juan Pérez, en adelante \"LA PARTE COMPRADORA\", se celebra el presente boleto de compraventa.</p><p>El inmueble objeto de la operación se encuentra ubicado en Palermo, Ciudad Autónoma de Buenos Aires.</p><p>El precio total se abonará en dos cuotas iguales. Carlos Ruiz interviene como garante de la operación.</p><p>Las partes firman el presente mediante verificación OTP.</p>"),
@@ -103,7 +101,6 @@ export const contratos = [
     fechaExpiracion: "30/04/2027",
     descripcionPropiedad: "Local comercial en el centro.",
     solicitudFirmaEnviada: true,
-    falloPdf: true, // la primera generación del PDF falla (camino alternativo de CU-10)
     versiones: [1, 2, 3, 4, 5].map((n) =>
       version(n, n === 1 ? "Sistema" : "Pablo Sosa", `0${n}/05/2026 09:${n}0`, n === 1 ? "Creación inicial" : `Revisión ${n}`, `<h3>CONTRATO DE MANDATO</h3><p>Laura Díaz otorga a Inmobiliaria Centro mandato para la administración del local ubicado en el centro de la ciudad.</p><p>Revisión número ${n} del contrato.</p>`)
     ),
@@ -123,7 +120,6 @@ export const contratos = [
     fechaExpiracion: "",
     descripcionPropiedad: "",
     solicitudFirmaEnviada: false,
-    falloPdf: false,
     versiones: [
       version(1, "Sistema", "01/10/2026 10:00", "Creación inicial", "<h3>CONTRATO DE LOCACIÓN</h3><p>Entre Pedro Gil, en adelante \"EL LOCADOR\", y Sofía Rey, en adelante \"LA LOCATARIA\", acuerdan celebrar el presente contrato de locación sobre el inmueble ubicado en Belgrano.</p>"),
     ],
@@ -141,7 +137,6 @@ export const contratos = [
     fechaExpiracion: "",
     descripcionPropiedad: "",
     solicitudFirmaEnviada: false,
-    falloPdf: false,
     versiones: [
       version(1, "Sistema", "28/09/2026 09:00", "Creación inicial", "<h3>CONTRATO DE MANDATO</h3><p>Inés Vidal otorga mandato para la administración del inmueble ubicado en Recoleta.</p>"),
       version(2, "María Gómez", "30/09/2026 16:40", "Se agregan obligaciones", "<h3>CONTRATO DE MANDATO</h3><p>Inés Vidal otorga mandato para la administración del inmueble ubicado en Recoleta.</p><p>El mandatario deberá rendir cuentas mensualmente.</p>"),
@@ -162,7 +157,6 @@ export const contratos = [
     fechaExpiracion: "31/12/2025",
     descripcionPropiedad: "",
     solicitudFirmaEnviada: true,
-    falloPdf: false,
     versiones: [
       version(1, "Sistema", "20/12/2024 09:00", "Creación inicial", "<h3>CONTRATO DE LOCACIÓN</h3><p>Entre Raúl Paz y Julia Sanz se celebra el presente contrato de locación sobre el inmueble ubicado en San Telmo.</p>"),
     ],
@@ -187,38 +181,12 @@ export function firmantes(contrato) {
   return contrato.partes.filter((p) => p.rol === "Firmante");
 }
 
-export function firmasCompletadas(contrato) {
-  return firmantes(contrato).filter((p) => p.estadoFirma === "Firmado").length;
-}
-
 export function esEditable(contrato) {
   return contrato.estado === "Borrador" || contrato.estado === "En Revisión";
 }
 
-// Busca la parte (y su contrato) por el token del enlace de acceso (CU-04)
-export function buscarPorTokenAcceso(token) {
-  for (const contrato of contratos) {
-    const p = contrato.partes.find((x) => x.tokenAcceso === token);
-    if (p) return { contrato, parte: p };
-  }
-  return null;
-}
-
-// Busca la parte (y su contrato) por el token del enlace de firma (CU-08)
-export function buscarPorTokenFirma(token) {
-  for (const contrato of contratos) {
-    const p = contrato.partes.find((x) => x.tokenFirma === token);
-    if (p) return { contrato, parte: p };
-  }
-  return null;
-}
-
 export function enlaceAcceso(parteInvitada) {
   return `${window.location.origin}/acceso/${parteInvitada.tokenAcceso}`;
-}
-
-export function enlaceFirma(parteInvitada) {
-  return `${window.location.origin}/firmar/${parteInvitada.tokenFirma}`;
 }
 
 // ---------- Acciones ----------
@@ -230,7 +198,6 @@ export function crearContrato(datos, contenido, autor) {
     estado: "Borrador",
     creador: autor,
     solicitudFirmaEnviada: false,
-    falloPdf: false,
     versiones: [version(1, autor, formatearFechaHora(new Date()), "Creación inicial", contenido)],
     partes: [],
     comentarios: [],
@@ -239,7 +206,7 @@ export function crearContrato(datos, contenido, autor) {
   return nuevo;
 }
 
-// Guarda una nueva versión numerada (CU-02 y CU-14)
+// Guarda una nueva versión numerada (CU-02)
 export function agregarVersion(contrato, contenido, comentario, autor) {
   const numero = versionActual(contrato).numero + 1;
   const nueva = version(numero, autor, formatearFechaHora(new Date()), comentario, contenido, hashSimulado(contenido + numero + Date.now()));

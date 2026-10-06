@@ -1,6 +1,6 @@
 "use client";
 
-// Navegación del BackOffice (solo Administrador): Usuarios · Plantillas · Actividad · Auditoría
+// Navegación del BackOffice (solo Administrador): Usuarios · Plantillas · Auditoría
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -8,7 +8,6 @@ import { usePathname } from "next/navigation";
 const SECCIONES = [
   { texto: "Gestión de Usuarios", href: "/backoffice/usuarios" },
   { texto: "Gestión de Plantillas", href: "/backoffice/plantillas" },
-  { texto: "Panel de Actividad", href: "/backoffice/actividad" },
   { texto: "Registro de Auditoría", href: "/backoffice/auditoria" },
 ];
 

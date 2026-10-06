@@ -41,9 +41,6 @@ export default function AppHeader({ usuario }) {
           </button>
           {menuAbierto && (
             <div className="card" style={{ position: "absolute", right: 0, top: 42, padding: 8, zIndex: 20, minWidth: 160 }}>
-              <Link href="/perfil" className="btn btn-bloque" style={{ border: "none", justifyContent: "flex-start" }} onClick={() => setMenuAbierto(false)}>
-                Mi Perfil
-              </Link>
               <button className="btn btn-bloque" style={{ border: "none", justifyContent: "flex-start" }} onClick={salir}>
                 Cerrar sesión
               </button>

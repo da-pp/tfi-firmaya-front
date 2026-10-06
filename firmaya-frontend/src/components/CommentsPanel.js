@@ -1,7 +1,7 @@
 "use client";
 
 // Contrato + panel lateral de comentarios (CU-06).
-// Se usa en la pestaña Comentarios (usuarios internos) y en la vista de la parte invitada (CU-04).
+// Se usa en la pestaña Comentarios.
 
 import { useState } from "react";
 import { MessageSquare } from "lucide-react";
