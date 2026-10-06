@@ -2,7 +2,7 @@
 
 // CU-18 – Registro de acciones de auditoría
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Search, Download, Eye } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import FormField from "@/components/FormField";
@@ -10,10 +10,10 @@ import Alert from "@/components/Alert";
 import Badge from "@/components/Badge";
 import Modal from "@/components/Modal";
 import Pagination from "@/components/Pagination";
-import { registrosAuditoria, TIPOS_ACCION, simularExportacion } from "@/data/audit";
-import { leerFecha, leerFechaHora, sumarDias, generarCsv, descargarArchivo } from "@/lib/utils";
+import { TIPOS_ACCION } from "@/data/audit";
+import { api, apiArchivo } from "@/lib/api";
+import { leerFecha, descargarArchivo, fechaHoraDeIso } from "@/lib/utils";
 
-const POR_PAGINA = 50;
 const SIN_FILTROS = { desde: "", hasta: "", usuario: "", tipo: "", contrato: "" };
 
 export default function AuditoriaPage() {
@@ -22,8 +22,32 @@ export default function AuditoriaPage() {
   const [errores, setErrores] = useState({});
   const [pagina, setPagina] = useState(1);
   const [expandido, setExpandido] = useState(null);
+  const [detalle, setDetalle] = useState(null);
   const [errorExportacion, setErrorExportacion] = useState(false);
-  const [mensaje, setMensaje] = useState("");
+  const [mensaje, setMensaje] = useState(null);
+  // Página de resultados: { total, pagina, totalPaginas, mensaje, registros }
+  const [resultado, setResultado] = useState(null);
+
+  // Parámetros que entiende el backend (fechas DD/MM/AAAA)
+  const params = {
+    fechaDesde: filtros.desde,
+    fechaHasta: filtros.hasta,
+    usuario: filtros.usuario,
+    tipoAccion: filtros.tipo,
+    contrato: filtros.contrato,
+  };
+  const clave = JSON.stringify(params);
+
+  // Pasos 2, 15, 16, 19 y 20: el backend filtra y pagina de a 50 registros
+  useEffect(() => {
+    let vigente = true;
+    api("/admin/auditoria", { params: { ...JSON.parse(clave), pagina } })
+      .then((datos) => vigente && setResultado(datos))
+      .catch((e) => vigente && setMensaje({ tipo: "error", texto: e.message }));
+    return () => {
+      vigente = false;
+    };
+  }, [clave, pagina]);
 
   function buscar() {
     const nuevos = {};
@@ -33,7 +57,8 @@ export default function AuditoriaPage() {
     if (Object.keys(nuevos).length > 0) return;
     setFiltros(form);
     setPagina(1);
-    setMensaje("");
+    setExpandido(null);
+    setMensaje(null);
   }
 
   function borrarFiltros() {
@@ -42,40 +67,34 @@ export default function AuditoriaPage() {
     setPagina(1);
   }
 
-  // Paso 15: filtros combinados
-  const desde = filtros.desde ? leerFecha(filtros.desde) : null;
-  const hasta = filtros.hasta ? sumarDias(leerFecha(filtros.hasta), 1) : null;
-  const encontrados = registrosAuditoria.filter((r) => {
-    const fecha = leerFechaHora(r.fecha);
-    if (desde && fecha < desde) return false;
-    if (hasta && fecha >= hasta) return false;
-    if (filtros.usuario && !r.usuario.toLowerCase().includes(filtros.usuario.toLowerCase())) return false;
-    if (filtros.tipo && r.tipo !== filtros.tipo) return false;
-    if (filtros.contrato && !r.contrato.toLowerCase().includes(filtros.contrato.toLowerCase())) return false;
-    return true;
-  });
-
-  const totalPaginas = Math.ceil(encontrados.length / POR_PAGINA);
-  const registrosPagina = encontrados.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA);
-
-  // Pasos 21-25
-  function exportar() {
-    setErrorExportacion(false);
-    if (!simularExportacion()) {
-      setErrorExportacion(true);
+  // Paso 18: detalle del registro (datos antes y después, versión y hash)
+  async function alternarDetalle(idRegistro) {
+    if (expandido === idRegistro) {
+      setExpandido(null);
       return;
     }
-    const columnas = [
-      { titulo: "Fecha y hora", campo: "fecha" },
-      { titulo: "Usuario", campo: "usuario" },
-      { titulo: "Tipo de acción", campo: "tipo" },
-      { titulo: "Entidad afectada", campo: "entidad" },
-      { titulo: "Descripción", campo: "descripcion" },
-      { titulo: "Dirección IP", campo: "ip" },
-    ];
-    descargarArchivo("registro_auditoria.csv", generarCsv(columnas, encontrados), "text/csv;charset=utf-8");
-    setMensaje("Registro exportado exitosamente.");
+    setExpandido(idRegistro);
+    setDetalle(null);
+    try {
+      setDetalle(await api(`/admin/auditoria/${idRegistro}`));
+    } catch (e) {
+      setMensaje({ tipo: "error", texto: e.message });
+    }
   }
+
+  // Pasos 21-25: el backend genera el CSV con los filtros activos
+  async function exportar() {
+    setErrorExportacion(false);
+    try {
+      const archivo = await apiArchivo("/admin/auditoria/exportar", { params });
+      descargarArchivo("registro_auditoria.csv", archivo, "text/csv;charset=utf-8");
+      setMensaje({ tipo: "exito", texto: "Registro exportado exitosamente." });
+    } catch {
+      setErrorExportacion(true);
+    }
+  }
+
+  const registros = resultado ? resultado.registros : [];
 
   function cambiar(campo, valor) {
     setForm({ ...form, [campo]: valor });
@@ -84,7 +103,7 @@ export default function AuditoriaPage() {
   return (
     <>
       <PageTitle icono={Search} titulo="Auditar log de acciones" />
-      {mensaje && <Alert tipo="exito" texto={mensaje} />}
+      {mensaje && <Alert tipo={mensaje.tipo} texto={mensaje.texto} />}
 
       <div className="card">
         <div className="grilla" style={{ gridTemplateColumns: "repeat(5, 1fr) auto", alignItems: "start" }}>
@@ -118,15 +137,15 @@ export default function AuditoriaPage() {
         <div className="card-titulo">
           <div>
             <h2>Log de auditoría</h2>
-            <p className="card-subtitulo">{encontrados.length} registros encontrados.</p>
+            <p className="card-subtitulo">{resultado ? `${resultado.total} registros encontrados.` : "Cargando…"}</p>
           </div>
           <button className="btn" onClick={exportar}>
             <Download size={14} /> Exportar Registro
           </button>
         </div>
 
-        {encontrados.length === 0 ? (
-          <Alert tipo="info" texto="No se encontraron registros con los filtros aplicados.">
+        {resultado && registros.length === 0 ? (
+          <Alert tipo="info" texto={resultado.mensaje || "No se encontraron registros con los filtros aplicados."}>
             <button className="btn btn-chico" onClick={borrarFiltros}>Borrar filtros</button>
           </Alert>
         ) : (
@@ -144,28 +163,32 @@ export default function AuditoriaPage() {
                 </tr>
               </thead>
               <tbody>
-                {registrosPagina.map((r) => (
-                  <Fragment key={r.id}>
-                    <tr className="fila-clic" onClick={() => setExpandido(expandido === r.id ? null : r.id)}>
-                      <td className="texto-suave">{r.fecha}</td>
+                {registros.map((r) => (
+                  <Fragment key={r.idRegistro}>
+                    <tr className="fila-clic" onClick={() => alternarDetalle(r.idRegistro)}>
+                      <td className="texto-suave">{fechaHoraDeIso(r.fechaHora, true)}</td>
                       <td><strong>{r.usuario}</strong></td>
-                      <td><Badge texto={r.tipo} /></td>
-                      <td className="texto-suave">{r.entidad}</td>
+                      <td><Badge texto={r.tipoAccion} /></td>
+                      <td className="texto-suave">{r.entidadAfectada}</td>
                       <td className="texto-suave">{r.descripcion}</td>
-                      <td className="texto-suave">{r.ip}</td>
+                      <td className="texto-suave">{r.direccionIp}</td>
                       <td>
                         <button className="btn btn-chico"><Eye size={12} /> Ver</button>
                       </td>
                     </tr>
-                    {expandido === r.id && (
+                    {expandido === r.idRegistro && (
                       <tr>
                         <td colSpan={7} style={{ background: "#fafbfd" }}>
-                          <div className="texto-chico">
-                            <div><strong>Antes:</strong> {r.antes || "—"}</div>
-                            <div><strong>Después:</strong> {r.despues || "—"}</div>
-                            <div><strong>Versión del contrato:</strong> {r.version || "—"}</div>
-                            <div className="mono"><strong style={{ fontFamily: "inherit" }}>Hash:</strong> {r.hash || "—"}</div>
-                          </div>
+                          {!detalle ? (
+                            <span className="texto-suave texto-chico">Cargando detalle…</span>
+                          ) : (
+                            <div className="texto-chico">
+                              <div><strong>Antes:</strong> {detalle.datosAntes || "—"}</div>
+                              <div><strong>Después:</strong> {detalle.datosDespues || "—"}</div>
+                              <div><strong>Versión del contrato:</strong> {detalle.numeroVersion ? `v${detalle.numeroVersion}` : "—"}</div>
+                              <div className="mono"><strong style={{ fontFamily: "inherit" }}>Hash:</strong> {detalle.hashVersion || "—"}</div>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )}
@@ -176,7 +199,7 @@ export default function AuditoriaPage() {
           </div>
         )}
 
-        <Pagination pagina={pagina} totalPaginas={totalPaginas} onCambiar={setPagina} />
+        {resultado && <Pagination pagina={pagina} totalPaginas={resultado.totalPaginas} onCambiar={setPagina} />}
       </div>
 
       {errorExportacion && (

@@ -3,7 +3,7 @@
 // CU-02 – Editar contrato en línea
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Pencil, Save } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import ContractHeader from "@/components/ContractHeader";
@@ -11,24 +11,22 @@ import RichEditor from "@/components/RichEditor";
 import Alert from "@/components/Alert";
 import Badge from "@/components/Badge";
 import Modal from "@/components/Modal";
-import { getContrato, versionActual, esEditable, agregarVersion } from "@/data/contracts";
-import { registrarAuditoria } from "@/data/audit";
-import { useUsuario, tomarFlash } from "@/data/session";
-import { nombreCompleto } from "@/data/users";
+import { useContrato } from "@/components/ContratoContext";
+import { tomarFlash } from "@/data/session";
+import { api } from "@/lib/api";
 
 export default function EditarContratoPage() {
-  const { id } = useParams();
   const router = useRouter();
-  const { usuario } = useUsuario();
-  const contrato = getContrato(id);
+  const { contrato, recargar } = useContrato();
 
-  const [html, setHtml] = useState(versionActual(contrato).contenido);
+  const [html, setHtml] = useState(contrato.contenido);
   const [texto, setTexto] = useState("");
   const [hayCambios, setHayCambios] = useState(false);
   const [comentario, setComentario] = useState("");
   const [errorContenido, setErrorContenido] = useState("");
   const [mensaje, setMensaje] = useState(null);
   const [modoLectura, setModoLectura] = useState(false);
+  const [guardando, setGuardando] = useState(false);
   // Destino al que el usuario quiso ir con cambios sin guardar
   const [destino, setDestino] = useState(null);
 
@@ -63,35 +61,40 @@ export default function EditarContratoPage() {
   }, [hayCambios]);
 
   // Pasos 13-20: guardar una nueva versión. Devuelve true si se guardó.
-  function guardarVersion() {
+  // El backend numera la versión, calcula el hash SHA-256 y actualiza el historial.
+  async function guardarVersion() {
     // El texto se toma del editor; si todavía no se tocó, del HTML actual
     const textoActual = hayCambios ? texto : html.replace(/<[^>]+>/g, "").trim();
     if (textoActual.length < 100) {
       setErrorContenido("El contenido del contrato debe tener al menos 100 caracteres");
       return false;
     }
-    const nueva = agregarVersion(contrato, html, comentario.trim(), nombreCompleto(usuario));
-    registrarAuditoria({
-      usuario: usuario.email,
-      tipo: "Edición",
-      entidad: "Contrato",
-      descripcion: `Nueva versión v${nueva.numero} de ${contrato.nombre}`,
-      contrato: contrato.nombre,
-      version: `v${nueva.numero}`,
-      hash: nueva.hash,
-    });
-    setHayCambios(false);
-    setComentario("");
-    setErrorContenido("");
-    setMensaje({ tipo: "exito", texto: `Versión guardada exitosamente. Versión: v${nueva.numero} · Hash: ${nueva.hash}` });
-    return true;
+    setGuardando(true);
+    try {
+      const nueva = await api(`/contratos/${contrato.idContrato}/versiones`, {
+        metodo: "POST",
+        cuerpo: { contenido: html, comentario: comentario.trim() },
+      });
+      setHayCambios(false);
+      setComentario("");
+      setErrorContenido("");
+      setMensaje({ tipo: "exito", texto: `${nueva.mensaje}. Versión: v${nueva.numeroVersion} · Hash: ${nueva.hash}` });
+      recargar();
+      return true;
+    } catch (e) {
+      if (e.errores.contenido) setErrorContenido(e.errores.contenido);
+      else setMensaje({ tipo: "error", texto: e.message });
+      return false;
+    } finally {
+      setGuardando(false);
+    }
   }
 
   // Botones del diálogo "¿Desea guardar los cambios antes de salir?"
-  function dialogoGuardar() {
+  async function dialogoGuardar() {
     const ir = destino;
     setDestino(null);
-    if (guardarVersion()) router.push(ir);
+    if (await guardarVersion()) router.push(ir);
   }
 
   function dialogoDescartar() {
@@ -102,7 +105,7 @@ export default function EditarContratoPage() {
   }
 
   // ---------- Contrato no editable (Firmado / Archivado) ----------
-  if (!esEditable(contrato) && !modoLectura) {
+  if (!contrato.editable && !modoLectura) {
     return (
       <>
         <PageTitle icono={Pencil} titulo="Editar contrato en línea" />
@@ -124,7 +127,7 @@ export default function EditarContratoPage() {
         <ContractHeader contrato={contrato} />
         <div className="card">
           <p className="texto-suave texto-chico mb-8">Solo lectura</p>
-          <div className="caja-gris contenido-contrato" dangerouslySetInnerHTML={{ __html: versionActual(contrato).contenido }} />
+          <div className="caja-gris contenido-contrato" dangerouslySetInnerHTML={{ __html: contrato.contenido }} />
         </div>
       </>
     );
@@ -177,7 +180,7 @@ export default function EditarContratoPage() {
             </ul>
           </div>
 
-          <button className="btn btn-primario btn-bloque mb-8" onClick={guardarVersion}>
+          <button className="btn btn-primario btn-bloque mb-8" onClick={guardarVersion} disabled={guardando}>
             <Save size={14} /> Guardar Versión
           </button>
           <button

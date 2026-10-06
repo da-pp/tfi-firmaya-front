@@ -22,6 +22,13 @@ export function formatearFechaHoraSegundos(fecha) {
   return `${formatearFechaHora(fecha)}:${dosDigitos(fecha.getSeconds())}`;
 }
 
+// El backend envía fechas ISO ("2026-10-06T14:30:00"). Las mostramos como DD/MM/AAAA HH:mm.
+export function fechaHoraDeIso(iso, conSegundos = false) {
+  if (!iso) return "—";
+  const fecha = new Date(iso);
+  return conSegundos ? formatearFechaHoraSegundos(fecha) : formatearFechaHora(fecha);
+}
+
 // "DD/MM/AAAA" -> Date (o null si el formato o la fecha no son válidos)
 export function leerFecha(texto) {
   const partes = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(texto.trim());
@@ -35,27 +42,10 @@ export function leerFecha(texto) {
   return fecha;
 }
 
-// "DD/MM/AAAA HH:mm[:ss]" -> Date (para ordenar y filtrar mocks)
-export function leerFechaHora(texto) {
-  const [fecha, hora = "00:00"] = texto.split(" ");
-  const d = leerFecha(fecha);
-  if (!d) return null;
-  const [h, m, s = "0"] = hora.split(":");
-  d.setHours(Number(h), Number(m), Number(s));
-  return d;
-}
-
 // Fecha de hoy sin horas (para comparar solo días)
 export function hoy() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-// Fecha de hoy menos/más N días
-export function sumarDias(fecha, dias) {
-  const d = new Date(fecha);
-  d.setDate(d.getDate() + dias);
   return d;
 }
 
@@ -66,22 +56,7 @@ export function emailValido(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-// ---------- Hash simulado ----------
-
-// Genera un "hash" de 64 caracteres hexadecimales a partir de un texto.
-// NO es SHA-256 real: solo sirve para mostrar valores en el frontend.
-export function hashSimulado(texto) {
-  let resultado = "";
-  for (let semilla = 1; semilla <= 8; semilla++) {
-    let h = 2166136261 ^ semilla;
-    for (let i = 0; i < texto.length; i++) {
-      h ^= texto.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    resultado += (h >>> 0).toString(16).padStart(8, "0");
-  }
-  return resultado;
-}
+// ---------- Hash ----------
 
 // Muestra el inicio de un hash: "a3f91c24d8e7b6a0…"
 export function hashCorto(hash, largo = 16) {
@@ -96,7 +71,7 @@ export function copiarAlPortapapeles(texto) {
   }
 }
 
-// Descarga un archivo generado en el navegador (CSV, PDF, etc.)
+// Descarga un archivo en el navegador (ej. el CSV de auditoría)
 export function descargarArchivo(nombre, contenido, tipo) {
   const blob = new Blob([contenido], { type: tipo });
   const url = URL.createObjectURL(blob);
@@ -105,27 +80,4 @@ export function descargarArchivo(nombre, contenido, tipo) {
   enlace.download = nombre;
   enlace.click();
   URL.revokeObjectURL(url);
-}
-
-// Convierte una lista de objetos en texto CSV
-export function generarCsv(columnas, filas) {
-  const escapar = (valor) => `"${String(valor ?? "").replace(/"/g, '""')}"`;
-  const encabezado = columnas.map((c) => escapar(c.titulo)).join(",");
-  const lineas = filas.map((fila) => columnas.map((c) => escapar(fila[c.campo])).join(","));
-  return [encabezado, ...lineas].join("\n");
-}
-
-// ---------- Envío de correos simulado ----------
-
-// Los emails que contienen "fallo" fallan la PRIMERA vez que se intenta
-// enviarles algo. El reintento funciona. Sirve para mostrar los caminos
-// alternativos de "error al enviar el correo".
-const emailsQueYaFallaron = [];
-
-export function simularEnvioCorreo(email) {
-  if (email.includes("fallo") && !emailsQueYaFallaron.includes(email)) {
-    emailsQueYaFallaron.push(email);
-    return false;
-  }
-  return true;
 }

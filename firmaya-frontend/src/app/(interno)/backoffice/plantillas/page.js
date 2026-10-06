@@ -10,21 +10,21 @@ import RichEditor from "@/components/RichEditor";
 import Alert from "@/components/Alert";
 import Badge from "@/components/Badge";
 import Modal from "@/components/Modal";
-import { plantillas, TIPOS_CONTRATO, guardarPlantilla, detectarCampos } from "@/data/templates";
-import { registrarAuditoria } from "@/data/audit";
-import { useUsuario } from "@/data/session";
+import { TIPOS_CONTRATO, detectarCampos } from "@/data/templates";
+import { api, useDatos } from "@/lib/api";
 
 const VACIO = { id: null, nombre: "", tipo: "", descripcion: "", cuerpo: "", estado: "" };
 
 export default function PlantillasPage() {
-  const { usuario } = useUsuario();
+  const { datos: plantillas, error: errorPlantillas, recargar } = useDatos("/admin/plantillas");
 
   const [form, setForm] = useState(VACIO);
   const [textoCuerpo, setTextoCuerpo] = useState("");
   // Cambia cada vez que se carga otra plantilla, para reiniciar el editor
   const [claveEditor, setClaveEditor] = useState(0);
   const [errores, setErrores] = useState({});
-  const [mensaje, setMensaje] = useState("");
+  const [mensaje, setMensaje] = useState(null);
+  const [guardando, setGuardando] = useState(false);
   const [avisoSinCampos, setAvisoSinCampos] = useState(false);
   const [plantillaConContratos, setPlantillaConContratos] = useState(null);
 
@@ -36,20 +36,24 @@ export default function PlantillasPage() {
     setTextoCuerpo(datos.cuerpo.replace(/<[^>]+>/g, " "));
     setClaveEditor((n) => n + 1);
     setErrores({});
-    setMensaje("");
+    setMensaje(null);
   }
 
   function nuevaPlantilla() {
     cargarEnEditor(VACIO);
   }
 
-  // Camino alternativo: editar una plantilla con contratos activos
-  function editar(plantilla) {
-    if (plantilla.contratosActivos > 0) {
-      setPlantillaConContratos(plantilla);
-      return;
+  // Camino alternativo: editar una plantilla con contratos activos.
+  // La lista no trae el cuerpo: se pide el detalle de la plantilla.
+  async function editar(resumen) {
+    try {
+      const p = await api(`/admin/plantillas/${resumen.idPlantilla}`);
+      const datos = { id: p.idPlantilla, nombre: p.nombre, tipo: p.tipoContrato, descripcion: p.descripcionUso || "", cuerpo: p.cuerpo, estado: p.estado };
+      if (p.tieneContratosActivos) setPlantillaConContratos(datos);
+      else cargarEnEditor(datos);
+    } catch (e) {
+      setMensaje({ tipo: "error", texto: e.message });
     }
-    cargarEnEditor({ ...plantilla });
   }
 
   function cambiar(campo, valor) {
@@ -57,17 +61,35 @@ export default function PlantillasPage() {
     setErrores({ ...errores, [campo]: "" });
   }
 
-  function guardar(sinCampos) {
-    const plantilla = guardarPlantilla({ ...form, nombre: form.nombre.trim() });
-    registrarAuditoria({
-      usuario: usuario.email,
-      tipo: form.id ? "Edición" : "Creación",
-      entidad: "Plantilla",
-      descripcion: `${form.id ? "Nueva versión" : "Alta"} de la plantilla ${plantilla.nombre}${sinCampos ? " (sin campos dinámicos)" : ""}`,
-    });
+  // Pasos 17-20: el backend valida, guarda la plantilla versionada y registra la auditoría.
+  // Si no tiene campos dinámicos responde 409 y hay que confirmar "Guardar sin campos".
+  async function guardar(guardarSinCampos) {
     setAvisoSinCampos(false);
-    cargarEnEditor(VACIO);
-    setMensaje("Plantilla guardada exitosamente.");
+    setGuardando(true);
+    const datos = {
+      nombre: form.nombre.trim(),
+      tipoContrato: form.tipo,
+      descripcionUso: form.descripcion.trim(),
+      cuerpo: form.cuerpo,
+      estado: form.estado,
+      guardarSinCampos,
+    };
+    try {
+      const respuesta = form.id
+        ? await api(`/admin/plantillas/${form.id}`, { metodo: "PUT", cuerpo: datos })
+        : await api("/admin/plantillas", { metodo: "POST", cuerpo: datos });
+      cargarEnEditor(VACIO);
+      setMensaje({ tipo: "exito", texto: respuesta.mensaje });
+      recargar();
+    } catch (e) {
+      if (e.estado === 409) setAvisoSinCampos(true);
+      else if (Object.keys(e.errores).length > 0) {
+        const { tipoContrato, descripcionUso, ...resto } = e.errores;
+        setErrores({ ...resto, tipo: tipoContrato, descripcion: descripcionUso });
+      } else setMensaje({ tipo: "error", texto: e.message });
+    } finally {
+      setGuardando(false);
+    }
   }
 
   // Pasos 16-20
@@ -79,18 +101,14 @@ export default function PlantillasPage() {
     if (!form.estado) nuevos.estado = "Este campo es obligatorio";
     setErrores(nuevos);
     if (Object.keys(nuevos).length > 0) return;
-
-    if (campos.length === 0) {
-      setAvisoSinCampos(true);
-      return;
-    }
     guardar(false);
   }
 
   return (
     <>
       <PageTitle icono={Settings} titulo="Gestionar plantillas de contratos" />
-      {mensaje && <Alert tipo="exito" texto={mensaje} />}
+      {mensaje && <Alert tipo={mensaje.tipo} texto={mensaje.texto} />}
+      {errorPlantillas && <Alert tipo="error" texto={errorPlantillas.message} />}
 
       <div className="grilla grilla-1-2">
         <div className="card">
@@ -112,10 +130,10 @@ export default function PlantillasPage() {
                 </tr>
               </thead>
               <tbody>
-                {plantillas.map((p) => (
-                  <tr key={p.id}>
+                {(plantillas || []).map((p) => (
+                  <tr key={p.idPlantilla}>
                     <td><strong>{p.nombre}</strong></td>
-                    <td className="texto-suave">{p.tipo}</td>
+                    <td className="texto-suave">{p.tipoContrato}</td>
                     <td><Badge texto={p.estado} /></td>
                     <td className="texto-suave">Versión {p.version}</td>
                     <td><button className="btn btn-chico" onClick={() => editar(p)}>Editar</button></td>
@@ -176,7 +194,7 @@ export default function PlantillasPage() {
             </div>
           </div>
 
-          <button className="btn btn-primario" onClick={alGuardar}>
+          <button className="btn btn-primario" onClick={alGuardar} disabled={guardando}>
             <Save size={14} /> Guardar Plantilla
           </button>
         </div>

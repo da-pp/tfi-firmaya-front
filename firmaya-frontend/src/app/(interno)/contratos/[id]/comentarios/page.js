@@ -2,21 +2,20 @@
 
 // CU-06 – Añadir comentarios y observaciones (usuarios internos)
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
 import { MessageSquare } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import ContractHeader from "@/components/ContractHeader";
 import CommentsPanel from "@/components/CommentsPanel";
-import { getContrato } from "@/data/contracts";
+import Alert from "@/components/Alert";
+import { useContrato } from "@/components/ContratoContext";
 import { useUsuario } from "@/data/session";
-import { nombreCompleto } from "@/data/users";
+import { api, useDatos } from "@/lib/api";
 
 export default function ComentariosPage() {
-  const { id } = useParams();
   const { usuario } = useUsuario();
-  const contrato = getContrato(id);
-  const [, setActualizar] = useState(0);
+  const { contrato } = useContrato();
+  const ruta = `/contratos/${contrato.idContrato}/comentarios`;
+  const { datos, error, recargar } = useDatos(ruta);
 
   if (!usuario) return null;
 
@@ -24,16 +23,24 @@ export default function ComentariosPage() {
   const rolPermite = usuario.rol === "Abogado" || usuario.rol === "Agente Inmobiliario";
   const puedeComentar = rolPermite && contrato.estado !== "Archivado";
 
+  // Pasos 13-18: el backend registra el comentario y notifica a las partes
+  async function publicar(texto, textoSeleccionado) {
+    const respuesta = await api(ruta, { metodo: "POST", cuerpo: { texto, textoSeleccionado: textoSeleccionado || null } });
+    await recargar();
+    return respuesta.mensaje;
+  }
+
   return (
     <>
       <PageTitle icono={MessageSquare} titulo="Agregar comentarios y observaciones" />
-      <ContractHeader contrato={contrato} extra={[{ etiqueta: "Comentarios", valor: contrato.comentarios.length }]} />
+      {error && <Alert tipo="error" texto={error.message} />}
+      <ContractHeader contrato={contrato} extra={[{ etiqueta: "Comentarios", valor: datos ? datos.totalComentarios : "…" }]} />
       <CommentsPanel
-        contrato={contrato}
-        autor={nombreCompleto(usuario)}
+        contenido={contrato.contenido}
+        comentarios={datos ? datos.comentarios : []}
         puedeComentar={puedeComentar}
         mensajeSinPermiso={rolPermite ? "" : "No puede añadir comentarios con su rol actual."}
-        onPublicado={() => setActualizar((n) => n + 1)}
+        onPublicar={publicar}
       />
     </>
   );

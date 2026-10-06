@@ -9,16 +9,9 @@ import { FileText, LogIn } from "lucide-react";
 import FormField from "@/components/FormField";
 import Alert from "@/components/Alert";
 import Modal from "@/components/Modal";
-import { buscarUsuarioPorEmail, nombreCompleto } from "@/data/users";
 import { iniciarSesion, guardarFlash } from "@/data/session";
-import { registrarAuditoria } from "@/data/audit";
+import { api } from "@/lib/api";
 import { emailValido } from "@/lib/utils";
-
-// Intentos fallidos y bloqueos por cuenta (en memoria)
-const intentosFallidos = {};
-const bloqueadaHasta = {};
-// Simulación de error de conexión: los emails con "sinconexion" fallan la primera vez
-const yaFalloConexion = [];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,6 +23,7 @@ export default function LoginPage() {
   const [errores, setErrores] = useState({});
   const [mensajeError, setMensajeError] = useState("");
   const [errorConexion, setErrorConexion] = useState(false);
+  const [enviando, setEnviando] = useState(false);
 
   // Pasos 12-14: validaciones de formato
   function validarCampos() {
@@ -47,41 +41,29 @@ export default function LoginPage() {
     return Object.keys(nuevos).length === 0;
   }
 
-  // Pasos 15-20: verificación de credenciales
-  function verificarCredenciales() {
-    const clave = email.trim().toLowerCase();
-
-    if (clave.includes("sinconexion") && !yaFalloConexion.includes(clave)) {
-      yaFalloConexion.push(clave);
-      setErrorConexion(true);
-      return;
-    }
-
-    if (bloqueadaHasta[clave] && bloqueadaHasta[clave] > Date.now()) {
-      setMensajeError("Tu cuenta ha sido bloqueada temporalmente. Puedes intentarlo de nuevo en 15 minutos o recuperar tu contraseña.");
-      return;
-    }
-
-    const usuario = buscarUsuarioPorEmail(clave);
-    const correcto = usuario && usuario.estado === "Activo" && usuario.password === password;
-
-    if (!correcto) {
-      intentosFallidos[clave] = (intentosFallidos[clave] || 0) + 1;
-      if (intentosFallidos[clave] >= 5) {
-        bloqueadaHasta[clave] = Date.now() + 15 * 60 * 1000;
-        intentosFallidos[clave] = 0;
-        setMensajeError("Tu cuenta ha sido bloqueada temporalmente. Puedes intentarlo de nuevo en 15 minutos o recuperar tu contraseña.");
+  // Pasos 15-20: el backend verifica las credenciales, cuenta los intentos fallidos
+  // (bloqueo de 15 minutos tras 5 intentos) y registra el inicio de sesión en auditoría
+  async function verificarCredenciales() {
+    setEnviando(true);
+    try {
+      const sesion = await api("/auth/login", {
+        metodo: "POST",
+        cuerpo: { email: email.trim(), contrasenia: password },
+      });
+      iniciarSesion({ ...sesion, email: email.trim() });
+      guardarFlash("exito", sesion.mensaje);
+      router.push("/panel");
+    } catch (e) {
+      if (e.estado === 0) {
+        setErrorConexion(true);
+      } else if (e.errores.email || e.errores.contrasenia) {
+        setErrores({ email: e.errores.email, password: e.errores.contrasenia });
       } else {
-        setMensajeError("El correo electrónico o la contraseña son incorrectos.");
+        setMensajeError(e.message);
       }
-      return;
+    } finally {
+      setEnviando(false);
     }
-
-    intentosFallidos[clave] = 0;
-    registrarAuditoria({ usuario: usuario.email, tipo: "Inicio de sesión", entidad: "Usuario", descripcion: "Inicio de sesión" });
-    iniciarSesion(usuario.email);
-    guardarFlash("exito", `Bienvenido, ${nombreCompleto(usuario)}.`);
-    router.push("/panel");
   }
 
   function enviar(evento) {
@@ -142,7 +124,7 @@ export default function LoginPage() {
             />
           </FormField>
 
-          <button type="submit" className="btn btn-primario btn-bloque">
+          <button type="submit" className="btn btn-primario btn-bloque" disabled={enviando}>
             <LogIn size={14} /> Iniciar Sesión
           </button>
 

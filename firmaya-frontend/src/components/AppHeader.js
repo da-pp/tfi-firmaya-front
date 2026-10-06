@@ -7,8 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileText } from "lucide-react";
-import { cerrarSesion } from "@/data/session";
-import { nombreCompleto } from "@/data/users";
+import { cerrarSesion, nombreCompleto } from "@/data/session";
 
 export default function AppHeader({ usuario }) {
   const router = useRouter();

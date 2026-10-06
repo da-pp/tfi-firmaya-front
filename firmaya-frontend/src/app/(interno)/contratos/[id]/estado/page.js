@@ -3,7 +3,7 @@
 // CU-05 – Cambiar estado del contrato
 
 import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { RefreshCw } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import ContractHeader from "@/components/ContractHeader";
@@ -11,9 +11,8 @@ import FormField from "@/components/FormField";
 import Alert from "@/components/Alert";
 import Badge from "@/components/Badge";
 import Modal from "@/components/Modal";
-import { getContrato, TRANSICIONES, firmantes } from "@/data/contracts";
-import { registrarAuditoria } from "@/data/audit";
-import { useUsuario } from "@/data/session";
+import { useContrato } from "@/components/ContratoContext";
+import { api, useDatos } from "@/lib/api";
 
 // Descripción informativa de cada estado destino (paso 6)
 const DESCRIPCIONES = {
@@ -23,10 +22,11 @@ const DESCRIPCIONES = {
 };
 
 export default function EstadoPage() {
-  const { id } = useParams();
   const router = useRouter();
-  const { usuario } = useUsuario();
-  const contrato = getContrato(id);
+  const { contrato, recargar } = useContrato();
+  const id = contrato.idContrato;
+  // Pasos 2-4: estado actual y estados disponibles según el flujo permitido
+  const { datos: transiciones, error: errorTransiciones, recargar: recargarTransiciones } = useDatos(`/contratos/${id}/transiciones`);
 
   const [nuevoEstado, setNuevoEstado] = useState("");
   const [razon, setRazon] = useState("");
@@ -34,8 +34,9 @@ export default function EstadoPage() {
   const [mensaje, setMensaje] = useState(null);
   const [confirmando, setConfirmando] = useState(false);
   const [avisoSinFirmantes, setAvisoSinFirmantes] = useState(false);
+  const [enviando, setEnviando] = useState(false);
 
-  const opciones = TRANSICIONES[contrato.estado] || [];
+  const opciones = transiciones ? transiciones.estadosDisponibles : [];
 
   function pedirConfirmacion() {
     if (!nuevoEstado) {
@@ -45,44 +46,37 @@ export default function EstadoPage() {
     setConfirmando(true);
   }
 
-  // Paso 12: validar transición
-  function confirmar() {
+  // Pasos 12-17: el backend valida la transición, actualiza el estado,
+  // registra la auditoría y notifica a las partes.
+  // continuarSinFirmantes: el usuario eligió "Continuar" en el aviso de contrato sin firmantes.
+  async function aplicarCambio(continuarSinFirmantes) {
     setConfirmando(false);
-    if (!opciones.includes(nuevoEstado)) {
-      setMensaje({ tipo: "error", texto: "Esta transición de estado no es posible. Verifique el flujo permitido." });
-      return;
-    }
-    if (nuevoEstado === "Listo para firmar" && firmantes(contrato).length === 0) {
-      setAvisoSinFirmantes(true);
-      return;
-    }
-    aplicarCambio();
-  }
-
-  // Pasos 13-17
-  function aplicarCambio() {
-    const anterior = contrato.estado;
-    contrato.estado = nuevoEstado;
-    registrarAuditoria({
-      usuario: usuario.email,
-      tipo: "Cambio de estado",
-      entidad: "Contrato",
-      descripcion: `${contrato.nombre}: ${anterior} → ${nuevoEstado}${razon.trim() ? ` (${razon.trim()})` : ""}`,
-      contrato: contrato.nombre,
-      antes: `Estado: ${anterior}`,
-      despues: `Estado: ${nuevoEstado}`,
-    });
-    // Paso 15: se notificaría por correo a las partes con notificaciones activas
     setAvisoSinFirmantes(false);
-    setNuevoEstado("");
-    setRazon("");
-    setMensaje({ tipo: "exito", texto: "Estado actualizado exitosamente" });
+    setEnviando(true);
+    try {
+      const respuesta = await api(`/contratos/${id}/estado`, {
+        metodo: "PATCH",
+        cuerpo: { nuevoEstado, razon: razon.trim(), continuarSinFirmantes },
+      });
+      setNuevoEstado("");
+      setRazon("");
+      setMensaje({ tipo: "exito", texto: respuesta.mensaje });
+      recargar();
+      recargarTransiciones();
+    } catch (e) {
+      // 409: el contrato no tiene firmantes asignados y hay que confirmar
+      if (e.estado === 409) setAvisoSinFirmantes(true);
+      else setMensaje({ tipo: "error", texto: e.message });
+    } finally {
+      setEnviando(false);
+    }
   }
 
   return (
     <>
       <PageTitle icono={RefreshCw} titulo="Cambiar estado del contrato" />
       {mensaje && <Alert tipo={mensaje.tipo} texto={mensaje.texto} />}
+      {errorTransiciones && <Alert tipo="error" texto={errorTransiciones.message} />}
       <ContractHeader contrato={contrato} />
 
       <div className="grilla grilla-2">
@@ -123,7 +117,7 @@ export default function EstadoPage() {
             />
           </FormField>
 
-          <button className="btn btn-primario btn-bloque" onClick={pedirConfirmacion}>
+          <button className="btn btn-primario btn-bloque" onClick={pedirConfirmacion} disabled={enviando}>
             <RefreshCw size={14} /> Confirmar cambio de estado
           </button>
         </div>
@@ -140,14 +134,14 @@ export default function EstadoPage() {
       {confirmando && (
         <Modal mensaje={`¿Confirma el cambio de estado de ${contrato.estado} a ${nuevoEstado}?`}>
           <button className="btn" onClick={() => setConfirmando(false)}>Cancelar</button>
-          <button className="btn btn-primario" onClick={confirmar}>Confirmar</button>
+          <button className="btn btn-primario" onClick={() => aplicarCambio(false)}>Confirmar</button>
         </Modal>
       )}
 
       {avisoSinFirmantes && (
         <Modal mensaje="El contrato no tiene firmantes asignados. ¿Desea continuar o ir a invitar partes?">
           <button className="btn" onClick={() => router.push(`/contratos/${id}/invitar`)}>Invitar partes</button>
-          <button className="btn btn-primario" onClick={aplicarCambio}>Continuar</button>
+          <button className="btn btn-primario" onClick={() => aplicarCambio(true)}>Continuar</button>
         </Modal>
       )}
     </>

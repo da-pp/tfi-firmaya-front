@@ -6,19 +6,22 @@
 import { useState } from "react";
 import { MessageSquare } from "lucide-react";
 import Alert from "./Alert";
-import { versionActual } from "@/data/contracts";
-import { formatearFechaHora } from "@/lib/utils";
+import { fechaHoraDeIso } from "@/lib/utils";
 
 const MAXIMO = 1000;
 
+// contenido: HTML de la versión actual del contrato
+// comentarios: lista que devuelve el backend, en orden cronológico
 // puedeComentar: false para el rol Solo lectura o contratos archivados
 // mensajeSinPermiso: texto a mostrar cuando no puede comentar
-export default function CommentsPanel({ contrato, autor, puedeComentar, mensajeSinPermiso, onPublicado }) {
+// onPublicar(texto, textoSeleccionado): publica en el backend y devuelve el mensaje de confirmación
+export default function CommentsPanel({ contenido, comentarios, puedeComentar, mensajeSinPermiso, onPublicar }) {
   const [fragmento, setFragmento] = useState("");
   const [formularioVisible, setFormularioVisible] = useState(false);
   const [texto, setTexto] = useState("");
   const [error, setError] = useState("");
   const [exito, setExito] = useState("");
+  const [publicando, setPublicando] = useState(false);
 
   // Paso 3-4: el usuario selecciona un texto del contrato
   function alSeleccionar() {
@@ -26,23 +29,24 @@ export default function CommentsPanel({ contrato, autor, puedeComentar, mensajeS
     if (seleccion && puedeComentar) setFragmento(seleccion);
   }
 
-  function publicar() {
+  async function publicar() {
     if (texto.trim() === "") {
       setError("El comentario no puede estar vacío");
       return;
     }
-    contrato.comentarios.push({
-      autor,
-      fecha: formatearFechaHora(new Date()),
-      texto: texto.trim(),
-      fragmento,
-    });
-    setTexto("");
-    setFragmento("");
-    setError("");
-    setFormularioVisible(false);
-    setExito("Comentario publicado con éxito");
-    onPublicado();
+    setPublicando(true);
+    try {
+      const mensaje = await onPublicar(texto.trim(), fragmento);
+      setTexto("");
+      setFragmento("");
+      setError("");
+      setFormularioVisible(false);
+      setExito(mensaje);
+    } catch (e) {
+      setError(e.errores?.texto || e.message);
+    } finally {
+      setPublicando(false);
+    }
   }
 
   const restantes = MAXIMO - texto.length;
@@ -55,7 +59,7 @@ export default function CommentsPanel({ contrato, autor, puedeComentar, mensajeS
           className="caja-gris contenido-contrato"
           style={{ minHeight: 300 }}
           onMouseUp={alSeleccionar}
-          dangerouslySetInnerHTML={{ __html: versionActual(contrato).contenido }}
+          dangerouslySetInnerHTML={{ __html: contenido }}
         />
         {fragmento && (
           <div className="alerta alerta-info mt-16">
@@ -102,18 +106,18 @@ export default function CommentsPanel({ contrato, autor, puedeComentar, mensajeS
               {error && <div className="helper-error">{error}</div>}
               <div className={restantes === 0 ? "helper-error" : "helper"}>{restantes} caracteres restantes</div>
             </div>
-            <button className="btn btn-primario btn-bloque" onClick={publicar}>
+            <button className="btn btn-primario btn-bloque" onClick={publicar} disabled={publicando}>
               <MessageSquare size={14} /> Publicar comentario
             </button>
           </div>
         )}
 
         <div style={{ borderTop: "1px solid #edf1f5", marginTop: 16, paddingTop: 16 }}>
-          {contrato.comentarios.map((c, i) => (
-            <div key={i} className="caja-gris mb-8" style={{ padding: 12 }}>
+          {comentarios.map((c) => (
+            <div key={c.idComentario} className="caja-gris mb-8" style={{ padding: 12 }}>
               <strong style={{ fontSize: 13 }}>{c.autor}</strong>
-              <div className="texto-tenue texto-chico">{c.fecha}</div>
-              {c.fragmento && <div className="texto-chico texto-suave mt-8">Sobre: “{c.fragmento}”</div>}
+              <div className="texto-tenue texto-chico">{fechaHoraDeIso(c.fechaPublicacion)}</div>
+              {c.textoSeleccionado && <div className="texto-chico texto-suave mt-8">Sobre: “{c.textoSeleccionado}”</div>}
               <p className="texto-chico mt-8" style={{ color: "#334155" }}>{c.texto}</p>
             </div>
           ))}

@@ -1,21 +1,14 @@
 "use client";
 
 // CU-21 – Recuperar Contraseña (paso 2: restablecer desde el enlace del correo)
-// Token de prueba válido: /recuperar-password/valido  (cuenta maria@mail.com)
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Lock } from "lucide-react";
 import FormField from "@/components/FormField";
 import Alert from "@/components/Alert";
-import { buscarUsuarioPorEmail } from "@/data/users";
-import { registrarAuditoria } from "@/data/audit";
-
-// Tokens de recuperación simulados (token → email de la cuenta)
-const tokensRecuperacion = { valido: "maria@mail.com" };
-// Tokens ya utilizados (quedan invalidados)
-const tokensUsados = [];
+import { api } from "@/lib/api";
 
 // Requisitos de la nueva contraseña (paso 14)
 const REQUISITOS = [
@@ -29,16 +22,30 @@ export default function RestablecerPasswordPage() {
   const { token } = useParams();
   const [password, setPassword] = useState("");
   const [confirmacion, setConfirmacion] = useState("");
-  const [listo, setListo] = useState(false);
+  // Mensaje de éxito del backend (paso 24)
+  const [listo, setListo] = useState("");
+  // null mientras se valida; "" si el token es válido; el mensaje de error si no lo es
+  const [errorToken, setErrorToken] = useState(null);
+  const [error, setError] = useState("");
+  const [enviando, setEnviando] = useState(false);
 
-  const tokenValido = tokensRecuperacion[token] && !tokensUsados.includes(token);
+  // Paso 12: el backend valida que el token exista y no haya expirado
+  useEffect(() => {
+    api(`/auth/recuperar/${token}`)
+      .then(() => setErrorToken(""))
+      .catch((e) => setErrorToken(e.message));
+  }, [token]);
+
+  if (errorToken === null) {
+    return <div className="pagina texto-suave" style={{ maxWidth: 640, paddingTop: 80 }}>Validando enlace…</div>;
+  }
 
   // Token expirado o inválido (paso 12)
-  if (!tokenValido && !listo) {
+  if (errorToken && !listo) {
     return (
       <div className="pagina" style={{ maxWidth: 640, paddingTop: 80 }}>
         <div className="card" style={{ padding: 28 }}>
-          <Alert tipo="error" texto="El enlace de recuperación ha expirado o no es válido. Solicita uno nuevo." />
+          <Alert tipo="error" texto={errorToken} />
           <Link href="/recuperar-password" className="btn btn-primario btn-bloque">Solicitar nuevo enlace</Link>
         </div>
       </div>
@@ -55,20 +62,29 @@ export default function RestablecerPasswordPage() {
   if (cumplidos === 3) colorFortaleza = "#eab308";
   if (cumpleTodos) colorFortaleza = "var(--verde)";
 
-  function restablecer(evento) {
+  // Pasos 20-24: el backend actualiza la contraseña, invalida el token y registra la auditoría
+  async function restablecer(evento) {
     evento.preventDefault();
-    const usuario = buscarUsuarioPorEmail(tokensRecuperacion[token]);
-    usuario.password = password;
-    tokensUsados.push(token);
-    registrarAuditoria({ usuario: usuario.email, tipo: "Cambio de contraseña", entidad: "Usuario", descripcion: "Cambio de contraseña" });
-    setListo(true);
+    setError("");
+    setEnviando(true);
+    try {
+      const respuesta = await api("/auth/restablecer", {
+        metodo: "POST",
+        cuerpo: { token, nuevaContrasenia: password, confirmarContrasenia: confirmacion },
+      });
+      setListo(respuesta.mensaje);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setEnviando(false);
+    }
   }
 
   if (listo) {
     return (
       <div className="pagina" style={{ maxWidth: 640, paddingTop: 80 }}>
         <div className="card" style={{ padding: 28 }}>
-          <Alert tipo="exito" texto="Tu contraseña se restableció exitosamente." />
+          <Alert tipo="exito" texto={listo} />
           <Link href="/login" className="btn btn-primario btn-bloque">Ir a inicio de sesión</Link>
         </div>
       </div>
@@ -84,6 +100,8 @@ export default function RestablecerPasswordPage() {
           </div>
           <h1>Restablecer contraseña</h1>
         </div>
+
+        {error && <Alert tipo="error" texto={error} />}
 
         <FormField etiqueta="Nueva contraseña" obligatorio>
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -114,7 +132,7 @@ export default function RestablecerPasswordPage() {
           />
         </FormField>
 
-        <button type="submit" className="btn btn-primario btn-bloque" disabled={!puedeRestablecer}>
+        <button type="submit" className="btn btn-primario btn-bloque" disabled={!puedeRestablecer || enviando}>
           Restablecer contraseña
         </button>
       </form>

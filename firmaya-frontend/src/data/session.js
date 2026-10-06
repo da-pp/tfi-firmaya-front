@@ -1,26 +1,37 @@
 "use client";
 
-// Sesión simulada (no hay autenticación real).
-// Guardamos solo el email del usuario logueado en sessionStorage
+// Sesión del usuario interno (CU-19).
+// Guardamos en sessionStorage el token que devuelve el backend y los datos del usuario
 // para que la sesión se mantenga al navegar o recargar la página.
 
 import { useEffect, useState } from "react";
-import { buscarUsuarioPorEmail } from "./users";
 
-const CLAVE = "firmaya_usuario";
+const CLAVE = "firmaya_sesion";
 
-export function iniciarSesion(email) {
-  sessionStorage.setItem(CLAVE, email);
+// datos: respuesta de POST /api/auth/login más el email ingresado
+export function iniciarSesion(datos) {
+  sessionStorage.setItem(CLAVE, JSON.stringify(datos));
 }
 
 export function cerrarSesion() {
   sessionStorage.removeItem(CLAVE);
 }
 
-export function getUsuarioActual() {
+export function getSesion() {
   if (typeof window === "undefined") return null;
-  const email = sessionStorage.getItem(CLAVE);
-  return email ? buscarUsuarioPorEmail(email) : null;
+  const texto = sessionStorage.getItem(CLAVE);
+  if (!texto) return null;
+  const sesion = JSON.parse(texto);
+  // La sesión vence en el backend; si ya pasó la fecha, ni siquiera la usamos
+  if (sesion.fechaExpiracion && new Date(sesion.fechaExpiracion) < new Date()) {
+    cerrarSesion();
+    return null;
+  }
+  return sesion;
+}
+
+export function nombreCompleto(usuario) {
+  return `${usuario.nombre} ${usuario.apellido}`;
 }
 
 // Hook para usar el usuario logueado dentro de un componente.
@@ -30,7 +41,7 @@ export function useUsuario() {
   const [cargado, setCargado] = useState(false);
 
   useEffect(() => {
-    setUsuario(getUsuarioActual());
+    setUsuario(getSesion());
     setCargado(true);
   }, []);
 

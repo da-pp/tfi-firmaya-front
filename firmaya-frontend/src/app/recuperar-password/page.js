@@ -6,20 +6,32 @@ import { useState } from "react";
 import { Lock, Mail } from "lucide-react";
 import FormField from "@/components/FormField";
 import Alert from "@/components/Alert";
+import { api } from "@/lib/api";
 import { emailValido } from "@/lib/utils";
 
 export default function RecuperarPasswordPage() {
   const [email, setEmail] = useState("");
-  const [enviado, setEnviado] = useState(false);
+  // Mensaje del backend: siempre el mismo, exista o no la cuenta (paso 9)
+  const [enviado, setEnviado] = useState("");
+  const [error, setError] = useState("");
+  const [enviando, setEnviando] = useState(false);
 
   const formatoInvalido = email.trim() !== "" && !emailValido(email);
   const puedeEnviar = email.trim() !== "" && !formatoInvalido;
 
-  function enviar(evento) {
+  // Pasos 8-10: si la cuenta existe, el backend envía un enlace con token de 30 minutos
+  async function enviar(evento) {
     evento.preventDefault();
-    // Se muestra el mismo mensaje exista o no la cuenta (paso 9).
-    // Si existe, el sistema enviaría un enlace con token de 30 minutos (paso 10).
-    setEnviado(true);
+    setError("");
+    setEnviando(true);
+    try {
+      const respuesta = await api("/auth/recuperar", { metodo: "POST", cuerpo: { email: email.trim() } });
+      setEnviado(respuesta.mensaje);
+    } catch (e) {
+      setError(e.errores.email || e.message);
+    } finally {
+      setEnviando(false);
+    }
   }
 
   return (
@@ -33,12 +45,8 @@ export default function RecuperarPasswordPage() {
           <p className="texto-suave">Ingresá tu email para recibir instrucciones.</p>
         </div>
 
-        {enviado && (
-          <Alert
-            tipo="exito"
-            texto="Si el correo electrónico ingresado corresponde a una cuenta registrada, recibirás instrucciones para restablecer tu contraseña."
-          />
-        )}
+        {enviado && <Alert tipo="exito" texto={enviado} />}
+        {error && <Alert tipo="error" texto={error} />}
 
         <FormField
           etiqueta="Email de recuperación"
@@ -53,12 +61,12 @@ export default function RecuperarPasswordPage() {
             value={email}
             onChange={(e) => {
               setEmail(e.target.value);
-              setEnviado(false);
+              setEnviado("");
             }}
           />
         </FormField>
 
-        <button type="submit" className="btn btn-primario btn-bloque" disabled={!puedeEnviar}>
+        <button type="submit" className="btn btn-primario btn-bloque" disabled={!puedeEnviar || enviando}>
           <Mail size={14} /> Enviar instrucciones
         </button>
       </form>

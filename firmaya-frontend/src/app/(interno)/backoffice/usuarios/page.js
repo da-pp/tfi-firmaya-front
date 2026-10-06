@@ -9,29 +9,32 @@ import FormField from "@/components/FormField";
 import Alert from "@/components/Alert";
 import Badge from "@/components/Badge";
 import Modal from "@/components/Modal";
-import { usuarios, ROLES_INTERNOS, buscarUsuarioPorEmail, crearUsuario, actualizarUsuario, nombreCompleto } from "@/data/users";
-import { registrarAuditoria } from "@/data/audit";
-import { useUsuario } from "@/data/session";
+import { nombreCompleto } from "@/data/session";
+import { api, useDatos } from "@/lib/api";
 import { emailValido } from "@/lib/utils";
 
-const VACIO = { nombre: "", apellido: "", email: "", rol: "", estado: "" };
+const VACIO = { nombre: "", apellido: "", email: "", idRol: "", estado: "" };
 const SOLO_LETRAS = /^[A-Za-zÁÉÍÓÚáéíóúÑñÜü ]+$/;
+const EMAIL_REGISTRADO = "Este Email ya está registrado en el sistema.";
 
 export default function UsuariosPage() {
-  const { usuario: admin } = useUsuario();
+  const { datos: usuarios, error: errorUsuarios, recargar } = useDatos("/admin/usuarios");
+  const { datos: roles } = useDatos("/admin/roles");
 
   const [form, setForm] = useState(VACIO);
   const [editandoId, setEditandoId] = useState(null); // null = alta de usuario nuevo
   const [errores, setErrores] = useState({});
-  const [mensaje, setMensaje] = useState("");
+  const [mensaje, setMensaje] = useState(null);
   const [confirmarDesactivacion, setConfirmarDesactivacion] = useState(false);
+  const [guardando, setGuardando] = useState(false);
 
-  // Paso 13: email con formato válido y no registrado (validación en tiempo real)
+  // Paso 13: email con formato válido y no registrado (validación en tiempo real).
+  // El backend vuelve a validar al guardar.
   function errorEmail(valor) {
     if (valor.trim() === "") return "";
     if (!emailValido(valor)) return "Ingrese un correo electrónico válido";
-    const existente = buscarUsuarioPorEmail(valor);
-    if (existente && existente.id !== editandoId) return "Este Email ya está registrado en el sistema.";
+    const existente = (usuarios || []).find((u) => u.email.toLowerCase() === valor.trim().toLowerCase());
+    if (existente && existente.idUsuario !== editandoId) return EMAIL_REGISTRADO;
     return "";
   }
 
@@ -44,14 +47,14 @@ export default function UsuariosPage() {
     setEditandoId(null);
     setForm(VACIO);
     setErrores({});
-    setMensaje("");
+    setMensaje(null);
   }
 
   function editar(u) {
-    setEditandoId(u.id);
-    setForm({ nombre: u.nombre, apellido: u.apellido, email: u.email, rol: u.rol, estado: u.estado });
+    setEditandoId(u.idUsuario);
+    setForm({ nombre: u.nombre, apellido: u.apellido, email: u.email, idRol: String(u.idRol), estado: u.estado });
     setErrores({});
-    setMensaje("");
+    setMensaje(null);
   }
 
   // Paso 17: validaciones
@@ -63,7 +66,7 @@ export default function UsuariosPage() {
       else if (!SOLO_LETRAS.test(form[campo])) nuevos[campo] = `El campo ${etiqueta} solo admite letras y espacios`;
     });
     nuevos.email = form.email.trim() === "" ? "El campo Email es obligatorio" : errorEmail(form.email);
-    if (!form.rol) nuevos.rol = "El campo Rol es obligatorio";
+    if (!form.idRol) nuevos.idRol = "El campo Rol es obligatorio";
     if (!form.estado) nuevos.estado = "El campo Estado es obligatorio";
 
     Object.keys(nuevos).forEach((k) => !nuevos[k] && delete nuevos[k]);
@@ -71,40 +74,49 @@ export default function UsuariosPage() {
     return Object.keys(nuevos).length === 0;
   }
 
+  // Pasos 18-21: el backend crea o actualiza la cuenta, envía el correo de activación
+  // y registra la acción en auditoría
+  async function enviar() {
+    setConfirmarDesactivacion(false);
+    setGuardando(true);
+    const datos = {
+      nombre: form.nombre.trim(),
+      apellido: form.apellido.trim(),
+      email: form.email.trim(),
+      idRol: Number(form.idRol),
+      estado: form.estado,
+    };
+    try {
+      const respuesta = editandoId === null
+        ? await api("/admin/usuarios", { metodo: "POST", cuerpo: datos })
+        : await api(`/admin/usuarios/${editandoId}`, { metodo: "PUT", cuerpo: datos });
+      setMensaje({ tipo: "exito", texto: respuesta.mensaje });
+      if (editandoId === null) setForm(VACIO);
+      recargar();
+    } catch (e) {
+      if (Object.keys(e.errores).length > 0) setErrores(e.errores);
+      else setMensaje({ tipo: "error", texto: e.message });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   function guardar() {
     if (!validar()) return;
-    const datos = { ...form, nombre: form.nombre.trim(), apellido: form.apellido.trim(), email: form.email.trim() };
-
-    if (editandoId === null) {
-      const nuevo = crearUsuario(datos);
-      registrarAuditoria({ usuario: admin.email, tipo: "Creación", entidad: "Usuario", descripcion: `Alta del usuario ${nuevo.email}` });
-      setMensaje("Usuario creado exitosamente. Se envió un correo de activación.");
-      setForm(VACIO);
-      return;
-    }
-
-    const actual = usuarios.find((u) => u.id === editandoId);
+    const actual = editandoId !== null && usuarios.find((u) => u.idUsuario === editandoId);
     // Camino alternativo: desactivación de un usuario activo
-    if (actual.estado === "Activo" && datos.estado === "Inactivo") {
+    if (actual && actual.estado === "Activo" && form.estado === "Inactivo") {
       setConfirmarDesactivacion(true);
       return;
     }
-    actualizarUsuario(editandoId, datos);
-    registrarAuditoria({ usuario: admin.email, tipo: "Edición", entidad: "Usuario", descripcion: `Edición del usuario ${datos.email}` });
-    setMensaje("Usuario actualizado exitosamente.");
-  }
-
-  function desactivar() {
-    actualizarUsuario(editandoId, { ...form });
-    registrarAuditoria({ usuario: admin.email, tipo: "Edición", entidad: "Usuario", descripcion: `Desactivación del usuario ${form.email}` });
-    setConfirmarDesactivacion(false);
-    setMensaje("Usuario desactivado exitosamente.");
+    enviar();
   }
 
   return (
     <>
       <PageTitle icono={UserCog} titulo="Gestionar usuarios y roles" />
-      {mensaje && <Alert tipo="exito" texto={mensaje} />}
+      {mensaje && <Alert tipo={mensaje.tipo} texto={mensaje.texto} />}
+      {errorUsuarios && <Alert tipo="error" texto={errorUsuarios.message} />}
 
       <div className="grilla grilla-2-1">
         <div className="card">
@@ -126,8 +138,8 @@ export default function UsuariosPage() {
                 </tr>
               </thead>
               <tbody>
-                {usuarios.map((u) => (
-                  <tr key={u.id}>
+                {(usuarios || []).map((u) => (
+                  <tr key={u.idUsuario}>
                     <td>{nombreCompleto(u)}</td>
                     <td className="texto-suave">{u.email}</td>
                     <td><Badge texto={u.rol} /></td>
@@ -152,10 +164,10 @@ export default function UsuariosPage() {
           <FormField etiqueta="Email" obligatorio error={errores.email}>
             <input className={errores.email ? "input con-error" : "input"} placeholder="usuario@dominio.com" maxLength={254} value={form.email} onChange={(e) => cambiar("email", e.target.value)} />
           </FormField>
-          <FormField etiqueta="Rol" obligatorio error={errores.rol}>
-            <select className={errores.rol ? "select con-error" : "select"} value={form.rol} onChange={(e) => cambiar("rol", e.target.value)}>
+          <FormField etiqueta="Rol" obligatorio error={errores.idRol}>
+            <select className={errores.idRol ? "select con-error" : "select"} value={form.idRol} onChange={(e) => cambiar("idRol", e.target.value)}>
               <option value="">Seleccionar</option>
-              {ROLES_INTERNOS.map((r) => <option key={r} value={r}>{r}</option>)}
+              {(roles || []).map((r) => <option key={r.idRol} value={r.idRol}>{r.nombre}</option>)}
             </select>
           </FormField>
           <FormField etiqueta="Estado" obligatorio error={errores.estado}>
@@ -171,7 +183,7 @@ export default function UsuariosPage() {
           <button
             className="btn btn-primario btn-bloque"
             onClick={guardar}
-            disabled={errores.email === "Este Email ya está registrado en el sistema."}
+            disabled={guardando || errores.email === EMAIL_REGISTRADO}
           >
             <Save size={14} /> {editandoId === null ? "Guardar Usuario" : "Guardar cambios"}
           </button>
@@ -181,7 +193,7 @@ export default function UsuariosPage() {
       {confirmarDesactivacion && (
         <Modal mensaje={`¿Confirma la desactivación de ${form.nombre} ${form.apellido}? El usuario no podrá iniciar sesión.`}>
           <button className="btn" onClick={() => setConfirmarDesactivacion(false)}>Cancelar</button>
-          <button className="btn btn-primario" onClick={desactivar}>Confirmar</button>
+          <button className="btn btn-primario" onClick={enviar}>Confirmar</button>
         </Modal>
       )}
     </>

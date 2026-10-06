@@ -7,11 +7,10 @@ import { useRouter } from "next/navigation";
 import { FileText, Plus } from "lucide-react";
 import PageTitle from "@/components/PageTitle";
 import FormField from "@/components/FormField";
-import { TIPOS_CONTRATO, plantillasActivas } from "@/data/templates";
-import { crearContrato } from "@/data/contracts";
-import { registrarAuditoria } from "@/data/audit";
+import Alert from "@/components/Alert";
+import { TIPOS_CONTRATO } from "@/data/templates";
 import { useUsuario, guardarFlash } from "@/data/session";
-import { nombreCompleto } from "@/data/users";
+import { api, useDatos } from "@/lib/api";
 import { leerFecha, hoy } from "@/lib/utils";
 
 const ERROR_OBLIGATORIO = "Este campo es obligatorio";
@@ -31,18 +30,21 @@ export default function NuevoContratoPage() {
     descripcionPropiedad: "",
   });
   const [errores, setErrores] = useState({});
+  const [mensajeError, setMensajeError] = useState("");
+  const [enviando, setEnviando] = useState(false);
 
-  const activas = plantillasActivas();
+  // Paso 2: plantillas activas cargadas por el administrador
+  const { datos: activas, error: errorPlantillas } = useDatos("/plantillas/activas");
   // Tipos que tienen al menos una plantilla activa
-  const tiposDisponibles = TIPOS_CONTRATO.filter((t) => activas.some((p) => p.tipo === t));
+  const tiposDisponibles = TIPOS_CONTRATO.filter((t) => (activas || []).some((p) => p.tipoContrato === t));
 
   // Camino alternativo: no hay plantillas disponibles (paso 2)
   useEffect(() => {
-    if (activas.length === 0) {
+    if (activas && activas.length === 0) {
       guardarFlash("error", "No hay plantillas disponibles. Contacte al administrador del sistema.");
       router.replace("/panel");
     }
-  }, [activas.length, router]);
+  }, [activas, router]);
 
   // Solo Abogado o Agente Inmobiliario (precondición)
   useEffect(() => {
@@ -76,24 +78,26 @@ export default function NuevoContratoPage() {
     return Object.keys(nuevos).length === 0;
   }
 
-  function crear() {
+  // Pasos 17-20: el backend genera la versión 1, calcula el hash y crea el contrato en Borrador
+  async function crear() {
+    setMensajeError("");
     if (!validar()) return;
-    const plantilla = activas.find((p) => p.tipo === tipo);
-    const autor = nombreCompleto(usuario);
-    // Pasos 17-19: versión 1, hash y estado Borrador
-    const contrato = crearContrato({ ...datos, tipo, plantillaId: plantilla.id }, plantilla.cuerpo, autor);
-    registrarAuditoria({
-      usuario: usuario.email,
-      tipo: "Creación",
-      entidad: "Contrato",
-      descripcion: `Creación de ${contrato.nombre}`,
-      contrato: contrato.nombre,
-      version: "v1",
-      hash: contrato.versiones[0].hash,
-    });
-    // Paso 20
-    guardarFlash("exito", "Contrato creado exitosamente");
-    router.push(`/contratos/${contrato.id}/editar`);
+    const plantilla = activas.find((p) => p.tipoContrato === tipo);
+    setEnviando(true);
+    try {
+      const creado = await api("/contratos", {
+        metodo: "POST",
+        cuerpo: { ...datos, idPlantilla: plantilla.idPlantilla },
+      });
+      guardarFlash("exito", creado.mensaje);
+      router.push(`/contratos/${creado.idContrato}/editar`);
+    } catch (e) {
+      const { idPlantilla, ...campos } = e.errores;
+      if (Object.keys(e.errores).length > 0) setErrores({ ...campos, tipo: idPlantilla });
+      else setMensajeError(e.message);
+    } finally {
+      setEnviando(false);
+    }
   }
 
   const sinTipo = tipo === "";
@@ -101,6 +105,8 @@ export default function NuevoContratoPage() {
   return (
     <>
       <PageTitle icono={FileText} titulo="Crear contrato desde plantilla" />
+      {errorPlantillas && <Alert tipo="error" texto={errorPlantillas.message} />}
+      {mensajeError && <Alert tipo="error" texto={mensajeError} />}
 
       <div className="grilla grilla-1-2">
         <div className="card">
@@ -180,7 +186,7 @@ export default function NuevoContratoPage() {
 
           <div className="botonera botonera-derecha">
             <button className="btn" onClick={() => router.push("/panel")}>Cancelar</button>
-            <button className="btn btn-primario" onClick={crear}>
+            <button className="btn btn-primario" onClick={crear} disabled={enviando}>
               <Plus size={14} /> Crear Contrato
             </button>
           </div>
